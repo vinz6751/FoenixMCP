@@ -1,3 +1,7 @@
+; Bootstrap of the kernel on Motorola 68k processors
+; Installs trap handler and interrupt handlers.
+
+
             xref ___main
             xref _cli_rerepl
 
@@ -8,10 +12,22 @@
             xdef _call_user
             xdef _restart_cli
 
+            ; Module settings
+
+            ; TRAP number for OS calls
+            IFND OS_TRAP_NUMBER
+OS_TRAP_NUMBER EQU 15 ; 15 = $f, F for Foenix !
+            ENDIF
+
+            ; Registers to save in exception handlers
+            IFND INT_REGS
+INT_REGS    REG d0-a6
+            ENDIF
+
             section "vectors",code
 
             dc.l ___STACK           ; 00 - Initial stack pointer
-            dc.l coldboot           ; 01 - Initial PC
+            dc.l os_start           ; 01 - Initial PC
             dc.l not_impl           ; 02 - Bus error
             dc.l not_impl           ; 03 - Address error
             dc.l not_impl           ; 04 - Illegal instruction
@@ -57,7 +73,7 @@
             dc.l not_impl           ; 44 - TRAP #12
             dc.l not_impl           ; 45 - TRAP #13
             dc.l not_impl           ; 46 - TRAP #14
-            dc.l h_trap_15          ; 47 - TRAP #15
+            dc.l not_impl           ; 47 - TRAP #15
             dc.l not_impl           ; 48 - Reserved
             dc.l not_impl           ; 49 - Reserved
             dc.l not_impl           ; 50 - Reserved
@@ -109,97 +125,98 @@
             ; dc.l interrupt_x2F      ; 95 - Interrupt 0x2F - DAC0 Playback Done Interrupt (44.1K)
 
             ; TODO: make room for reserved and User Interrupt Vectors
-
+            ; Maybe we want to reserve some code for system variables too.
             code
 
-coldboot:   lea ___STACK,sp
-            bsr _int_disable_all
+            
+os_start:   ; OS CODE STARTS HERE
+            lea     ___STACK,sp         ; we reload this in case of cold boot
+            bsr     _int_disable_all
 
-            lea	___BSSSTART,a0
-            move.l #___BSSSIZE,d0
-            beq	callmain
+clear_bss:  ; Clear kernel's BSS
+            lea	    ___BSSSTART,a0
+            move.l  #___BSSSIZE,d0
+            beq.s	.bss_cleared
+            lsr.l   #2,d0           ; We clear 4 bytes a a time. This assumes the BSS size is a multiple of 4!
+.clrloop:   clr.l   (a0)+
+            dbra    d0,.clrloop
+.bss_cleared:
 
-clrloop:    clr.l (a0)+
-            subq.l #4,d0
-            bne	clrloop
+            ; Set TRAP vector handler
+            move.l trap_handler(pc),(OS_TRAP_NUMBER+32)*4
 
-            ; Set TRAP #13 vector handler
-            lea h_trap_15,a0        ; Address of the handler
-            move.l #(13+32)<<2,a1   ; TRAP#13 vector address
-            move.l a0,(a1)          ; Set the vector
+call_main:  ; call __main to transfer to the C code
+            jsr ___main
 
-callmain:   jsr ___main             ; call __main to transfer to the C code
-
-;	endless loop; can be changed accordingly
+            ;	endless loop; can be changed accordingly
 ___exit:
             bra	___exit
+
 
 ;
 ; Autovector #1: Used by VICKY III Channel B interrupts
 ;
-autovec1:   movem.l d0-d7/a0-a6,-(a7)
-            jsr _int_vicky_channel_b        ; Call the dispatcher for Channel B interrupts
-            movem.l (a7)+,d0-d7/a0-a6
+autovec1:   movem.l INT_REGS,-(a7)
+            jsr     _int_vicky_channel_b        ; Call the dispatcher for Channel B interrupts
+            movem.l (a7)+,INT_REGS
             rte
 
 ;
 ; Autovector #1: Used by VICKY III Channel A interrupts
 ;
-autovec2:   movem.l d0-d7/a0-a6,-(a7)
-            jsr _int_vicky_channel_a        ; Call the dispatcher for Channel A interrupts
-            movem.l (a7)+,d0-d7/a0-a6
+autovec2:   movem.l INT_REGS,-(a7)
+            jsr     _int_vicky_channel_a        ; Call the dispatcher for Channel A interrupts
+            movem.l (a7)+,INT_REGS
             rte
 
 ;
-; Given the interrupt's offset in the interrupt handler table, fetch the pointer
+; Given the interrupt's offset in the interrupt handler table as d0.w, fetch the pointer
 ; to the interrupt handler and call it... if there is one
 ;
-; Assumes registers D0-D7, A0-A6 have been saved to the stack with MOVEM
+; Assumes registers have been saved to the stack
 ;
 int_dispatch:
-            lea _g_int_handler,a0           ; Look in the interrupt handler table
-            movea.l (0,a0,d0),a1            ; Get the address of the handler
-            beq intdis_end                  ; If there isn't one, just return
-
-            jsr (a1)                        ; If there is, call it.
-
-intdis_end: movem.l (a7)+,d0-d7/a0-a6       ; Restore the registers
+            lea     _g_int_handler,a0   ; Look in the interrupt handler table
+            movea.l (a0,d0.w),a0            ; Get the address of the handler
+            cmpa.l  #0,a0
+            beq.s   .end                    ; If there isn't one, just return
+            jsr     (a0)                    ; If there is, call it.
+.end:       movem.l (a7)+,INT_REGS          ; Restore the registers
             rte
-
 ;
 ; Interrupt Vector 0x10 -- SuperIO Keyboard
 ;
 interrupt_x10:
-            movem.l d0-d7/a0-a6,-(a7)       ; Save all the registers
-            move.w #($10<<2),d0             ; Get the offset to interrupt 0x11
-            bra int_dispatch                ; And process the interrupt
+            movem.l INT_REGS,-(a7)          ; Save all the registers
+            move.w  #($10<<2),d0             ; Get the offset to interrupt 0x11
+            bra.s   int_dispatch                ; And process the interrupt
 
 ;
 ; Interrupt Vector 0x11 -- A2560K "Mo" keyboard
 ;
 interrupt_x11:
-            movem.l d0-d7/a0-a6,-(a7)       ; Save all the registers
-            move.w #($11<<2),d0             ; Get the offset to interrupt 0x11
-            bra int_dispatch                ; And process the interrupt
+            movem.l INT_REGS,-(a7)          ; Save all the registers
+            move.w  #($11<<2),d0             ; Get the offset to interrupt 0x11
+            bra.s   int_dispatch                ; And process the interrupt
 
 ;
 ; Interrupt Vector 0x12 -- SuperIO Mouse
 ;
 interrupt_x12:
-            movem.l d0-d7/a0-a6,-(a7)       ; Save all the registers
-            move.w #($12<<2),d0             ; Get the offset to interrupt 0x11
-            bra int_dispatch                ; And process the interrupt
+            movem.l INT_REGS,-(a7)          ; Save all the registers
+            move.w  #($12<<2),d0             ; Get the offset to interrupt 0x11
+            bra.s   int_dispatch                ; And process the interrupt
             ; jsr _mouse_handle_irq
-            ; movem.l (a7)+,d0-d7/a0-a6       ; Restore the registers
+            ; movem.l (a7)+,INT_REGS        ; Restore the registers
             ; rte
             
 ;
 ; Interrupt Vector 0x1F -- RTC
 ;
 interrupt_x1F:
-            movem.l d0-d7/a0-a6,-(a7)       ; Save all the registers
-            move.w #($1f<<2),d0             ; Get the offset to interrupt 0x1f
-            bra int_dispatch                ; And process the interrupt
+            movem.l INT_REGS,-(a7)       ; Save all the registers
+            move.w  #($1f<<2),d0             ; Get the offset to interrupt 0x1f
+            bra   int_dispatch                ; And process the interrupt
 
 ;
 ; Unimplemented Exception Handler -- just return
@@ -208,13 +225,13 @@ not_impl:   rte
 
 ;
 ; Enable all interrupts
-;
+; TODO: define this from C as asm functions so VBCC can inline them. 
 _int_enable_all:    andi.w #$F8FF,SR
                     rts
 
 ;
 ; Disable all interrupts
-;
+; TODO: define this from C as asm functions so VBCC can inline them.
 _int_disable_all:   ori.w #$0700,SR
                     rts
 
@@ -222,56 +239,43 @@ _int_disable_all:   ori.w #$0700,SR
 ; Function to make a system call based on the number of the system function:
 ; int32_t syscall(int32_t number, int32_t p0, int32_t p1, int32_t p2, int32_t p3, int32_t p4, int32_t p5)
 ;
+SYSCALL_REGS REG d1-d7
 _syscall:
-            movem.l d1-d7,-(sp)         ; Save caller's registers
-            move.l (56,sp),d6           ; Parameter 5 to D6
-            move.l (52,sp),d5           ; Parameter 4 to D5
-            move.l (48,sp),d4           ; Parameter 3 to D4
-            move.l (44,sp),d3           ; Parameter 2 to D3
-            move.l (40,sp),d2           ; Parameter 1 to D2
-            move.l (36,sp),d1           ; Parameter 0 to D1
-            move.l (32,sp),d0           ; Function number to D0
+            movem.l SYSCALL_REGS,-(sp)  ; Save caller's registers
+            movem.l 32(sp),d0-d6        ; 7 register are saved, skip return address -> 4*7+4 = 32
+                                        ; Parameter x is in dx. d0.l is the function number
 
-            TRAP #15                    ; Call into the kernel
+            TRAP #OS_TRAP_NUMBER        ; Call into the kernel
 
-            movem.l (sp)+,d1-d7         ; Restore caller's registers
+            movem.l (sp)+,SYSCALL_REGS  ; Restore caller's registers
             rts
 
 
 ;
-; TRAP#15 handler... transfer control to the C dispatcher
+; TRAP handler... transfer control to the C dispatcher
 ;
-h_trap_15:
-            move.l d6,-(sp)             ; Push the parameters to the stack for the C call
-            move.l d5,-(sp)
-            move.l d4,-(sp)
-            move.l d3,-(sp)
-            move.l d2,-(sp)
-            move.l d1,-(sp)
-            move.l d0,-(sp)
+trap_handler:
+            movem.l d0-d6,-(sp)         ; Push the parameters to the stack for the C call
 
             jsr _syscall_dispatch       ; Call the C routine to do the dispatch
                                         ; Note: the C routine depends upon the register push order
 
-            add.l #28,sp                ; Remove parameters from the stack
+            lea 28(sp),sp               ; Remove parameters from the stack
 
             rte                         ; Return to the caller
 
 ;
 ; Jump into a user mode code
-;
-; Inputs:
-; a0 = pointer to code to execute
-; a1 = location to set user stack pointer
-;
-_call_user:
-            move.l (4,a7),a0
-            move.l (8,a7),a1
-            andi #$dfff,sr              ; Drop into user mode
-            movea.l a1,a7               ; Set the stack
-            jmp (a0)
+; void call_user(long start, long stack)
+; Uses C calling conventions.
+_call_user: cargs   start,stack
+            movea.l stack(sp),a0
+            move.l  a0,usp              ; Set user stack
+            movea.l start(sp),a0        ; User routine
+            andi    #$df00,sr           ; Drop into user mode, clear CCR so user process doesn't get rubbish
+            jmp     (a0)                ; Go !
 
 _restart_cli:
-            lea ___STACK,sp
-            jsr _cli_rerepl
-            bra _restart_cli
+            lea ___STACK,sp             ; reset stack in case user process messed it up
+            move.l _restart_cli,-(sp)   ; return address
+            jmp _cli_rerepl
