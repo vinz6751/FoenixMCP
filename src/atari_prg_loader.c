@@ -3,13 +3,12 @@
  *
  * This is written according to https://freemint.github.io/tos.hyp/en/gemdos_programs.html
  * The kernel doesn't have memory management so we load the programs at
- * a fixed address.
+ * a block we reserve.
  * 
  * Author(s):
  *   Vincent Barrilliot
  *
  * TODO:
- *   * stack setting and filling with basepage
  *   * command line support ?
  *   * environment support ?
  */
@@ -17,10 +16,15 @@
 #include <limits.h>
 #include "types.h"
 #include "errors.h"
-#include "dev/channel.h"
 #include "memory.h"
+#include "dev/channel.h"
 
-#define DEFAULT_STACK_SIZE 1024
+#define TEST 1
+
+
+#define DEFAULT_STACK_SIZE 64 /* Stack we create for user programs. This is deliberately tiny
+                                 * as the user process is supposed to create its own stack in
+                                 * its BSS segment */
 #define PID 0x601a /* TODO: This is hardcoded because the proc library doesn't create PIDs yet. 
                     * As value we use the "magic" number identifying Atari PRGs,
                     * it's as good as anything else. */
@@ -39,29 +43,31 @@ typedef struct
    uint32_t ph_absflag;       /* 0 = Relocation info present              */
 } PROGRAM_HEADER;
 
+#if defined(TEST)
+ #include <osbind.h> /* This defines BASEPAGE */
+ #include <stdio.h>
+#else
 /* This is what a process receives as information about itself.
  * Programs expected this to be at 4(sp) when they receive control */
-typedef struct pd
-{
-   uint32_t *p_lowtpa;      /* Start address of the TPA            */
-   uint32_t *p_hitpa;       /* First byte after the end of the TPA */
-   uint32_t *p_tbase;       /* Start address of the program code   */
-   uint32_t  p_tlen;        /* Length of the program code          */
-   uint32_t *p_dbase;       /* Start address of the DATA segment   */
-   uint32_t  p_dlen;        /* Length of the DATA section          */
-   uint32_t *p_bbase;       /* Start address of the BSS segment    */
-   uint32_t  p_blen;        /* Length of the BSS section           */
-   uint32_t *p_dta;         /* TODO: Pointer to the default DTA          */
-                            /* Warning: Points first to the        */
-                            /* command line !                      */
-   struct pd *p_parent;     /* Pointer to the basepage of the      */
-                            /* calling processes                   */
-   int32_t   p_resrvd0;     /* Reserved                            */
-   char     *p_env;         /* Address of the environment string; double-NULL-terminated */
-   int8_t    p_resrvd1[80]; /* Reserved                            */
-   int8_t    p_cmdlin[128]; /* Command line, length.b first, beware string may not be NULL-terminated */
-} BASEPAGE; /* also known as Process Descriptor */
+typedef struct basep {
+    uint8_t *p_lowtpa;      /* pointer to self (bottom of TPA) */
+    uint8_t *p_hitpa;       /* pointer to top of TPA + 1 */
+    uint8_t *p_tbase;       /* base of text segment */
+    int32_t  p_tlen;         /* length of text segment */
+    uint8_t *p_dbase;       /* base of data segment */
+    int32_t  p_dlen;         /* length of data segment */
+    uint8_t *p_bbase;       /* base of BSS segment */
+    int32_t  p_blen;         /* length of BSS segment */
+    uint8_t *p_dta;         /* (UNOFFICIAL, DON'T USE) */
+    struct basep *p_parent;     /* pointer to parent's basepage */
+    uint8_t *p_reserved;    /* reserved for future use */
+    uint8_t *p_env;         /* pointer to environment string */
+    uint8_t  p_junk[8];
+    int32_t  p_undef[18];    /* scratch area... don't touch */
+    uint8_t  p_cmdlin[128];  /* command line image */
+} BASEPAGE;
 
+#endif
 
 /* We don't tell the kernel to execute  the program directly. Instead, we
  * call a "TOS-emulation" which sets up our own stack. */
@@ -94,41 +100,41 @@ short atari_prg_loader(short channel_handle, long destination, long *start)
     uint32_t  tpa_size;
     uint32_t  textdata_size; /* Size of TEXT+DATA */
     short     env_size;
-    void     *stacktop;
+    uint8_t  *stacktop;
     short     n;
-    short     result;
     uint8_t  *writer; 
     char     *env;
+    int       i;
 
     start = 0L;
     env = (char*)default_environment;
 
     file_length = chan_seek(channel_handle, -1/*max long value*/, CDEV_SEEK_ABSOLUTE);
-    chan_seek(channel_handle, 0 , CDEV_SEEK_ABSOLUTE);
- 
+    chan_seek(channel_handle, 0L , CDEV_SEEK_ABSOLUTE);
+printf("ici3, file handle: %d, length: %ld\n", channel_handle, file_length); 
     /* Read header, check that format is supported */
     n = chan_read(channel_handle, (uint8_t*)&header, sizeof(PROGRAM_HEADER));
     if (n != sizeof(PROGRAM_HEADER) && header.ph_branch != 0x601a)
         return ERR_BAD_BINARY;
     file_length -= n;
-
+printf("file read, n=%ld\n",n);
     /* Allocate TPA (= Transient Program Area, the memory area holding the program)
      * and BASEPAGE (the structure given to the program so it knows about itself) */
     textdata_size = header.ph_tlen + header.ph_dlen;
     tpa_size = textdata_size + header.ph_blen;
     env_size = get_environment_size(env);
-
+printf("env size: \n", env_size);
     basepage = (BASEPAGE*)mem_alloc(PID, MEM_TAG, compute_process_memory_requirement(tpa_size, env_size));
     if (basepage = 0L)
         return ERR_OUT_OF_MEMORY;
     tpa = (int8_t*)(basepage + sizeof(BASEPAGE));
-    stacktop = (uint16_t*)(tpa + DEFAULT_STACK_SIZE);
+    stacktop = tpa + DEFAULT_STACK_SIZE;
 
     /* Setup BASEPAGE */
-    basepage->p_lowtpa = (uint32_t*)tpa;
-    basepage->p_hitpa = (uint32_t*)tpa + tpa_size;
+    basepage->p_lowtpa = tpa;
+    basepage->p_hitpa = tpa + tpa_size;
     /* TEXT */
-    basepage->p_tbase = (uint32_t*)tpa + sizeof(PROGRAM_HEADER);
+    basepage->p_tbase = tpa + sizeof(PROGRAM_HEADER);
     basepage->p_tlen = header.ph_tlen;
     /* DATA */
     basepage->p_dbase = basepage->p_tbase + basepage->p_tlen;
@@ -137,16 +143,16 @@ short atari_prg_loader(short channel_handle, long destination, long *start)
     basepage->p_bbase = basepage->p_tbase + basepage->p_dlen;
     basepage->p_blen = header.ph_blen;
     /* Clear BSS. TODO should use bzero when it becomes available */
-    for (int i = 0; i < basepage->p_blen; i++)
+    for (i = 0; i < basepage->p_blen; i++)
         basepage->p_bbase[i] = 0;
 
     basepage->p_parent = atari_tos_running_prg; // This is set when (if!) the process actually starts in atari_prg_bootstrap
-    basepage->p_resrvd0 = 0L;
+    basepage->p_reserved = 0L;
     basepage->p_cmdlin[0] = '\0'; // We don't support command line (yet ?)
     basepage->p_env = (char*)stacktop;
     writer = basepage->p_env;
     /* Copy Environment */
-    for (int i = 0 ; i < env_size ; i++)
+    for (i = 0 ; i < env_size ; i++)
         *writer++ = *env++;
     
     // TODO ? the following is done by emutos
@@ -172,22 +178,18 @@ short atari_prg_loader(short channel_handle, long destination, long *start)
 
     // If relocation is needed, do it
     if (header.ph_absflag == 0)
-        relocate(basepage, channel_handle);
+        if (relocate(basepage, channel_handle) != 0)
+            goto read_error; /* We assume it was a read error */
 
-    result = 0; /* OK */
     atari_tos_running_prg = basepage;
     start = (long*)atari_prg_bootstrap;
 
     return 0; /* OK */
 
-exit_upon_error:
-    if (basepage)
-       mem_free(PID, (uint32_t)basepage); /* TODO */
-    return result;
-
 read_error:
-    result = DEV_CANNOT_READ;
-    goto exit_upon_error;
+    if (basepage)
+       mem_free(PID, (uint32_t)basepage);
+    return DEV_CANNOT_READ;
 }
 
 
@@ -270,3 +272,49 @@ static short relocate(BASEPAGE *basepage, short channel_handle)
 
     return 0; /* OK */
 }
+
+#if defined(TEST)
+
+#include <stdio.h>
+
+short chan_read(short channel, uint8_t * buffer, short size)
+{
+    return Fread(channel, size, buffer);
+}
+
+short chan_seek(short handle, long offset, short base)
+{
+    return (short)Fseek(handle, offset, base);
+}
+
+uint32_t mem_alloc(unsigned short pid, unsigned short tag, uint32_t bytes) 
+{
+    return Malloc(bytes);
+}
+
+void mem_free(unsigned short pid, uint32_t address)
+{
+    Mfree(address);
+}
+
+void main(void) 
+{
+    short handle;
+    void (*entry_point)();
+    const char filename[] = "TEST.TOS";
+
+    handle = Fopen(filename, 0);
+    if (handle <= 0)
+    {
+        printf("Failed to open %s\n", filename);
+        Crawcin();
+        return;
+    }
+    
+
+    if (atari_prg_loader(handle, 0, (long*)&entry_point))
+        Fclose(handle);
+
+    entry_point();
+}
+#endif

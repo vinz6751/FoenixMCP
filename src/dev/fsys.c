@@ -16,6 +16,8 @@
 #include "dev/channel.h"
 #include "simpleio.h"
 #include "errors.h"
+#include "atari_prg_loader.h"
+
 
 #define MAX_DRIVES      8       /* Maximum number of drives */
 #define MAX_DIRECTORIES 8       /* Maximum number of open directories */
@@ -1148,6 +1150,10 @@ short fsys_init() {
     /* Register the built-in binary file loaders */
     fsys_register_loader("PGZ", fsys_pgz_loader);
     fsys_register_loader("PGX", fsys_pgx_loader);
+
+    /* Register extra loaders */
+    fsys_register_loader("TOS", atari_prg_loader);
+    fsys_register_loader("PRG", atari_prg_loader);
 
     /* Register the channel driver for files. */
 

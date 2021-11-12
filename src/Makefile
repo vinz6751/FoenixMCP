@@ -44,6 +44,8 @@ cli_c_src := $(wildcard cli/*.c)
 cli_c_obj := $(subst .c,.o,$(cli_c_src))
 c_src :=  $(wildcard *.c)
 c_obj := $(subst .c,.o,$(c_src))
+assembly_src := $(wildcard *.s)
+assembly_obj := $(subst .s,.o,$(assembly_src))
 
 .PHONY: all $(cpu) dev fatfs snd cli
 
@@ -64,8 +66,8 @@ snd:
 cli:
 	$(MAKE) --directory=cli
 
-foenixmcp.s68: $(c_obj) $(cpu) dev fatfs snd cli
-	$(CC) $(CFLAGS) $(DEFINES) -o foenixmcp.s68 $(c_obj) $(cpu_c_obj) $(dev_c_obj) $(fat_c_obj) $(snd_c_obj) $(cli_c_obj)
+foenixmcp.s68: $(c_obj) $(assembly_obj) $(cpu) dev fatfs snd cli
+	$(CC) $(CFLAGS) $(DEFINES) -o foenixmcp.s68 $(c_obj) $(assembly_obj) $(cpu_c_obj) $(dev_c_obj) $(fat_c_obj) $(snd_c_obj) $(cli_c_obj)
 
 %.o: %.c $(DEPS)
 	$(CC) -S -c -o $@ $< $(CFLAGS) $(DEFINES)
