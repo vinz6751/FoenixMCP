@@ -10,13 +10,14 @@
  *
  * TODO:
  *   * command line support ?
- *   * environment support ?
+ *   * environment support ? Right now the environment is hardcoded but we otherwise
+ *     support it.
  * Execution of a program happens like this:
- * call_user
- *   (jumps to ) atari_prg_bootstrap
- *     program
+ * call_user (MCP kernel)
+ *   atari_prg_bootstrap (jump)
+ *     program (jump)
  *       Pterm0 (trap handler)
- *       the Pterm trap handlers needs to 
+ *          atari_prg_terminate 
  * 
  */
 
@@ -140,6 +141,7 @@ short atari_prg_loader(short channel_handle, long destination, long *start)
     /* Setup BASEPAGE */
     basepage->p_lowtpa = tpa;
     basepage->p_hitpa = tpa + tpa_size + 1; /* Yeah, hitpa should point after the TPA */
+    
     /* TEXT */
     basepage->p_tbase = tpa;
     basepage->p_tlen = header.ph_tlen;
@@ -147,6 +149,7 @@ short atari_prg_loader(short channel_handle, long destination, long *start)
     /* DATA */
     basepage->p_dbase = basepage->p_tbase + basepage->p_tlen;
     basepage->p_dlen = header.ph_dlen;
+
     /* BSS */
     basepage->p_bbase = basepage->p_dbase + basepage->p_dlen;
     basepage->p_blen = header.ph_blen;
@@ -156,6 +159,7 @@ short atari_prg_loader(short channel_handle, long destination, long *start)
     basepage->p_parent = atari_tos_running_prg; // This is set when (if!) the process actually starts in atari_prg_bootstrap
     basepage->p_reserved = stacktop;
     basepage->p_cmdlin[0] = '\0'; // We don't support command line (yet ?)
+    
     /* Environment */
     basepage->p_env = (char*)stacktop;
     writer = basepage->p_env;
@@ -192,17 +196,6 @@ short atari_prg_loader(short channel_handle, long destination, long *start)
     atari_tos_running_prg = basepage;
 
     *start = (long)atari_prg_bootstrap;
-    //printf("start=%p  basepage=%p  text=%p  stack=%p\r\n", *start, basepage, basepage->p_tbase, basepage->p_reserved);
-    //printf("BASEPAGE.p_tbase: %ld\r\n", offsetof(BASEPAGE,p_tbase));
-    //printf("BASEPAGE.p_reserved: %ld\r\n", offsetof(BASEPAGE,p_reserved));
-    /*printf("BASEPAGE: %p\r\n", basepage);
-    for (i = 0; i < sizeof(BASEPAGE); i++)
-        printf("%X", ((uint8_t*)basepage)[i]);
-    printf("\r\n"); */
-    printf("TEXT (%p)  length: %ld\r\n", basepage->p_tbase, basepage->p_tlen);
-    for (i = 0; i < basepage->p_tlen/2; i++)
-        printf("%04X ", ((uint16_t*)(basepage->p_tbase))[i]);
-    printf("\r\n");
 
     return 0; /* OK */
 
@@ -267,10 +260,8 @@ static short relocate(BASEPAGE *basepage, short channel_handle)
 
     /* Initial offset (index of first item to relocate) */
     reloc_target = (uint8_t*)(basepage->p_tbase + (long)reloc_target);
-    printf("Initial relocation target: %p\r\n", (uint32_t*)reloc_target);
 
     bool first = 1;
-    uint32_t p;
     /* Loop through the relocation entries */
     for (;;)
     {
@@ -292,7 +283,6 @@ static short relocate(BASEPAGE *basepage, short channel_handle)
         }
 
         *((uint32_t*)reloc_target) += (long)basepage->p_tbase;
-        printf("Relocation target=%lx to %lx\r\n",p , *reloc_target);
     }
 
     return 0; /* OK */
