@@ -120,7 +120,7 @@ short atari_prg_loader(short channel_handle, long destination, long *start)
     env = (char*)default_environment;
 
     file_length = chan_seek(channel_handle, 0L, CDEV_SEEK_END);
-    chan_seek(channel_handle, 0L , CDEV_SEEK_ABSOLUTE);
+    chan_seek(channel_handle, 0L , CDEV_SEEK_START);
 
     /* Read header, check that format is supported */
     n = chan_read(channel_handle, (uint8_t*)&header, sizeof(PROGRAM_HEADER));
