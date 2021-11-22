@@ -9,9 +9,11 @@
  *   Vincent Barrilliot
  *
  * TODO:
- *   * command line support ?
+ *   * command line support
  *   * environment support ? Right now the environment is hardcoded but we otherwise
- *     support it.
+ *     support it
+ *   * speed up relocation by not reading file byte by byte
+ *
  * Execution of a program happens like this:
  * call_user (MCP kernel)
  *   atari_prg_bootstrap (jump)
@@ -28,7 +30,7 @@
 #include "dev/channel.h"
 #include "proc.h"
 
-#define TEST 1
+//#define TEST 1
 
 
 #define DEFAULT_STACK_SIZE 256 /* Stack we create for user programs. This is deliberately tiny
@@ -288,7 +290,10 @@ static short relocate(BASEPAGE *basepage, short channel_handle)
     return 0; /* OK */
 }
 
+
+
 #if defined(TEST)
+/************* Test program, for GCC 4.6.4 ********************/
 
 #include <stdio.h>
 

@@ -9,6 +9,6 @@
 #include "fsys.h"
 
 /* This is the loader that is registered to the kernel */
-short atari_prg_runner(short chan, long destination, long *start);
+short atari_prg_loader(short chan, long destination, long *start);
 
 #endif
