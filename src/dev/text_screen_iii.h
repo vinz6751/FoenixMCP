@@ -23,6 +23,22 @@ extern int text_init();
 extern void text_set_cursor(short screen, short color, char character, short rate, short enable);
 
 /*
+ * Enable the text cursor on the given screen.
+ * Inputs:
+ * screen = the screen number 0 for channel A, 1 for channel B 
+ * reset = set anything != 0 to force the on/off counter to reset
+ */
+void text_cursor_on(short screen, short reset);
+
+/*
+ * Hide the text cursor on the given screen.
+ * Inputs:
+  * screen = the screen number 0 for channel A, 1 for channel B 
+ * reset = set anything != 0 to force the on/off counter to reset
+ */
+void text_cursor_off(short screen, short reset);
+
+/*
  * Set the border
  *
  * Inputs:
