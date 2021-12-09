@@ -17,14 +17,15 @@
 #include "dev/text_screen_iii.h"
 #include "simpleio.h"
 
+#define ESC '\x1B'
 #define ANSI_BUFFER_SIZE    16
 #define MAX_ANSI_ARGS       10
 
-#define CON_CTRL_ANSI       0x80            /* Set to enable ANSI escape processing */
-#define CON_IOCTRL_ANSI_ON  0x01            /* IOCTRL Command: turn on ANSI terminal codes */
-#define CON_IOCTRL_ANSI_OFF 0x02            /* IOCTRL Command: turn off ANSI terminal codes */
+#define CON_CTRL_ANSI       0x80 /* Set to enable ANSI escape processing */
+#define CON_IOCTRL_ANSI_ON  0x01 /* IOCTRL Command: turn on ANSI terminal codes */
+#define CON_IOCTRL_ANSI_OFF 0x02 /* IOCTRL Command: turn off ANSI terminal codes */
 
-typedef void (*ansi_handler)(p_channel, short, short[]);
+typedef void (*ansi_handler)(p_channel, short, const short[]);
 
 /*
  * Structure to map an ANSI escape sequence pattern to a handler
@@ -48,16 +49,16 @@ typedef struct s_console_data {
  * Forwards
  */
 
-extern void ansi_cuu(p_channel chan, short arg_count, short args[]);
-extern void ansi_cuf(p_channel chan, short arg_count, short args[]);
-extern void ansi_cub(p_channel chan, short arg_count, short args[]);
-extern void ansi_cud(p_channel chan, short arg_count, short args[]);
-extern void ansi_cup(p_channel chan, short arg_count, short args[]);
-extern void ansi_ed(p_channel chan, short arg_count, short args[]);
-extern void ansi_el(p_channel chan, short arg_count, short args[]);
-extern void ansi_ich(p_channel chan, short arg_count, short args[]);
-extern void ansi_dch(p_channel chan, short arg_count, short args[]);
-extern void ansi_sgr(p_channel chan, short arg_count, short args[]);
+extern void ansi_cuu(p_channel chan, short arg_count, const short args[]);
+extern void ansi_cuf(p_channel chan, short arg_count, const short args[]);
+extern void ansi_cub(p_channel chan, short arg_count, const short args[]);
+extern void ansi_cud(p_channel chan, short arg_count, const short args[]);
+extern void ansi_cup(p_channel chan, short arg_count, const short args[]);
+extern void ansi_ed(p_channel chan, short arg_count, const short args[]);
+extern void ansi_el(p_channel chan, short arg_count, const short args[]);
+extern void ansi_ich(p_channel chan, short arg_count, const short args[]);
+extern void ansi_dch(p_channel chan, short arg_count, const short args[]);
+extern void ansi_sgr(p_channel chan, short arg_count, const short args[]);
 static short con_flush(p_channel chan);
 
 /*
@@ -88,16 +89,10 @@ const t_ansi_seq ansi_sequence[] = {
  * c = the character to test
  *
  * Returns:
- * 0 if the character is not an ANSI initial, 1 if it is
+ * 0 if the character is not an ANSI initial, -1 if it is
  */
 short ansi_start_code(char c) {
-    switch (c) {
-        case '\x1b':
-            return 1;
-
-        default:
-            return 0;
-    }
+    return c == ESC;
 }
 
 /*
@@ -114,16 +109,16 @@ void ansi_match_pattern(p_channel chan, p_console_data con_data) {
 
     TRACE("ansi_match_pattern");
 
-    /* Clear out the argument list */
-    for (i = 0; i < MAX_ANSI_ARGS; i++) {
-        arg[i] = 0;
-    }
-
     /* Make sure we have an escape sequence */
-    if ((con_data->ansi_buffer[0] != '\x1b') || (con_data->ansi_buffer[1] != '[')) {
+    if (*((short*)con_data->ansi_buffer) != 0x1B5B/*ESC-[*/) {
         /* If not, dump the buffer and return */
         con_flush(chan);
         return;
+    }
+
+    /* Clear out the argument list */
+    for (i = 0; i < MAX_ANSI_ARGS; i++) {
+        arg[i] = 0;
     }
 
     /* Try to assemble the arguments */
@@ -166,12 +161,12 @@ void ansi_match_pattern(p_channel chan, p_console_data con_data) {
 void ansi_process_c(p_channel chan, p_console_data con_data, char c) {
     TRACE("ansi_process_c");
 
-    if (c == '\x1B') {
+    if (c == ESC) {
         /* Start the escape sequence */
         con_data->ansi_buffer[0] = c;
         con_data->ansi_buffer_count = 1;
-
-    } else if (con_data->ansi_buffer_count > 0) {
+    }
+    else if (con_data->ansi_buffer_count > 0) {
         /* We're processing an escape sequence... add the character to the buffer */
         con_data->ansi_buffer[con_data->ansi_buffer_count++] = c;
 
@@ -181,7 +176,6 @@ void ansi_process_c(p_channel chan, p_console_data con_data, char c) {
             ansi_match_pattern(chan, con_data);
             con_data->ansi_buffer_count = 0;
         }
-
     } else {
         /* Not working on a sequence... so just print it */
         text_put_raw(chan->dev, c);
@@ -191,7 +185,7 @@ void ansi_process_c(p_channel chan, p_console_data con_data, char c) {
 /*
  * ANSI Handler: cursor up
  */
-void ansi_cuu(p_channel chan, short arg_count, short args[]) {
+void ansi_cuu(p_channel chan, short arg_count, const short args[]) {
     unsigned short x, y;
     short delta = 1;
 
@@ -201,7 +195,9 @@ void ansi_cuu(p_channel chan, short arg_count, short args[]) {
         delta = args[0];
     }
 
-    if (delta == 0) delta = 1;
+    if (delta == 0) {
+        delta = 1;
+    }
 
     text_get_xy(chan->dev, &x, &y);
     y -= delta;
@@ -211,7 +207,7 @@ void ansi_cuu(p_channel chan, short arg_count, short args[]) {
 /*
  * ANSI Handler: cursor forward
  */
-void ansi_cuf(p_channel chan, short arg_count, short args[]) {
+void ansi_cuf(p_channel chan, short arg_count, const short args[]) {
     unsigned short x, y;
     short delta = 1;
 
@@ -221,7 +217,9 @@ void ansi_cuf(p_channel chan, short arg_count, short args[]) {
         delta = args[0];
     }
 
-    if (delta == 0) delta = 1;
+    if (delta == 0) {
+        delta = 1;
+    }
 
     text_get_xy(chan->dev, &x, &y);
     x += delta;
@@ -231,7 +229,7 @@ void ansi_cuf(p_channel chan, short arg_count, short args[]) {
 /*
  * ANSI Handler: cursor back
  */
-void ansi_cub(p_channel chan, short arg_count, short args[]) {
+void ansi_cub(p_channel chan, short arg_count, const short args[]) {
     unsigned short x, y;
     short delta = 1;
 
@@ -241,7 +239,9 @@ void ansi_cub(p_channel chan, short arg_count, short args[]) {
         delta = args[0];
     }
 
-    if (delta == 0) delta = 1;
+    if (delta == 0) {
+        delta = 1;
+    }
 
     text_get_xy(chan->dev, &x, &y);
     x -= delta;
@@ -251,7 +251,7 @@ void ansi_cub(p_channel chan, short arg_count, short args[]) {
 /*
  * ANSI Handler: cursor down
  */
-void ansi_cud(p_channel chan, short arg_count, short args[]) {
+void ansi_cud(p_channel chan, short arg_count, const short args[]) {
     unsigned short x, y;
     short delta = 1;
 
@@ -261,7 +261,9 @@ void ansi_cud(p_channel chan, short arg_count, short args[]) {
         delta = args[0];
     }
 
-    if (delta == 0) delta = 1;
+    if (delta == 0) {
+        delta = 1;
+    }
 
     text_get_xy(chan->dev, &x, &y);
     y += delta;
@@ -271,7 +273,7 @@ void ansi_cud(p_channel chan, short arg_count, short args[]) {
 /*
  * ANSI Handler: cursor position
  */
-void ansi_cup(p_channel chan, short arg_count, short args[]) {
+void ansi_cup(p_channel chan, short arg_count, const short args[]) {
     unsigned short x = 1;
     unsigned short y = 1;
 
@@ -284,8 +286,13 @@ void ansi_cup(p_channel chan, short arg_count, short args[]) {
         }
     }
 
-    if (x == 0) x = 1;
-    if (y == 0) y = 1;
+    if (x == 0) {
+        x = 1;
+    }
+
+    if (y == 0) {
+        y = 1;
+    }
 
     text_set_xy(chan->dev, x - 1, y - 1);
 }
@@ -293,7 +300,7 @@ void ansi_cup(p_channel chan, short arg_count, short args[]) {
 /*
  * ANSI Handler: erase in display
  */
-void ansi_ed(p_channel chan, short arg_count, short args[]) {
+void ansi_ed(p_channel chan, short arg_count, const short args[]) {
     unsigned short n = 2;
 
     TRACE("ansi_ed");
@@ -308,7 +315,7 @@ void ansi_ed(p_channel chan, short arg_count, short args[]) {
 /*
  * ANSI Handler: erase in line
  */
-void ansi_el(p_channel chan, short arg_count, short args[]) {
+void ansi_el(p_channel chan, short arg_count, const short args[]) {
     unsigned short n = 2;
 
     TRACE("ansi_el");
@@ -323,7 +330,7 @@ void ansi_el(p_channel chan, short arg_count, short args[]) {
 /*
  * ANSI Handler: insert a character
  */
-void ansi_ich(p_channel chan, short arg_count, short args[]) {
+void ansi_ich(p_channel chan, short arg_count, const short args[]) {
     unsigned short n = 2;
 
     TRACE("ansi_ich");
@@ -338,7 +345,7 @@ void ansi_ich(p_channel chan, short arg_count, short args[]) {
 /*
  * ANSI Handler: delete a character
  */
-void ansi_dch(p_channel chan, short arg_count, short args[]) {
+void ansi_dch(p_channel chan, short arg_count, const short args[]) {
     unsigned short n = 2;
 
     TRACE("ansi_dch");
@@ -353,7 +360,7 @@ void ansi_dch(p_channel chan, short arg_count, short args[]) {
 /*
  * Set Graphics Rendition
  */
-void ansi_sgr(p_channel chan, short argc, short args[]) {
+void ansi_sgr(p_channel chan, short argc, const short args[]) {
     short foreground = 0, background = 0;
     short i;
 
