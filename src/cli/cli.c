@@ -46,7 +46,7 @@ extern short cmd_cls(short channel, int argc, const char * argv[]);
 extern short cmd_showint(short channel, int argc, const char * argv[]);
 extern short cmd_getjiffies(short channel, int argc, const char * argv[]);
 extern short cmd_get_ticks(short channel, int argc, const char * argv[]);
-
+extern short cmd_emutos(short channel, int argc, const char * argv[]);
 /*
  * Variables
  */
@@ -65,6 +65,7 @@ const t_cli_command g_cli_commands[] = {
     { "DISKFILL", "DISKFILL <drive #> <sector #> <byte value>", cmd_diskfill },
     { "DISKREAD", "DISKREAD <drive #> <sector #>", cmd_diskread },
     { "DUMP", "DUMP <addr> [<count>] : print a memory dump", mem_cmd_dump},
+    { "EMUTOS", "EMUTOS : Boot EmuTOS from flash bank 1", cmd_emutos},    
     { "GETJIFFIES", "GETJIFFIES : print the number of jiffies since bootup", cmd_getjiffies },
     { "GETTICKS", "GETTICKS : print number of ticks since reset", cmd_get_ticks },
     { "LABEL", "LABEL <drive#> <label> : set the label of a drive", cmd_label },
@@ -118,6 +119,14 @@ short cmd_get_ticks(short channel, int argc, const char * argv[]) {
     sprintf(buffer, "%ld\n", rtc_get_jiffies());
     sys_chan_write(channel, buffer, strlen(buffer));
     return 0;
+}
+
+extern short cmd_emutos(short channel, int argc, const char * argv[])
+{
+    void (*osstart)() = 0xf00000;
+    sys_int_disable_all(); /* That sets IPL7 */
+    /* No need to go to supervisor, we already are (MCP  CLI runs in supervisor) */
+    osstart();
 }
 
 /*

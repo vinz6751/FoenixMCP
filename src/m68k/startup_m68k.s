@@ -119,9 +119,21 @@ PENDING_GRP2 = $00B00104
 
             code
 
-coldboot:   lea ___STACK,sp
-            bsr _int_disable_all
-
+coldboot:
+            lea     ___STACK,sp
+            bsr     _int_disable_all
+            ; Check dip switches and boot from flash bank 0 or 1 depending on whether boot mode is 0 or 1
+            move.w  $b00518,d0  ; Get dip switches state
+            andi.w  #3,d0       ; Only keep boot mode
+            beq.s   bootflash0  ; Boot mode 0 = boot MCP
+            cmpi.w  #1,d0       ; Boot mode 1 = boot from flash bank 0xf00000
+            beq.s   bootflash1
+            bra.s   bootmcp
+bootflash1: lea     $f00000,a0
+            lea     0(a0),sp
+            jmp     4(a0)
+bootflash0:
+bootmcp:
             ; Clear BSS segment
             lea	   ___BSSSTART,a0
             move.l #___BSSSIZE,d0
