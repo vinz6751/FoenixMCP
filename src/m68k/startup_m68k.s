@@ -5,6 +5,7 @@
             .public int_disable_all
             .public call_user
             .public restart_cli
+            .public __low_level_init
 
             ; Imports
             .extern panic_number
@@ -18,7 +19,10 @@
             .extern g_int_handler
             .extern syscall_dispatch
 
-;
+            ; Only exported for debug purposes
+            .public coldboot
+
+
 ; Interrupt registers for A2560U and U+
 ;
 ; Don't try to use semething like "if MODEL=6 || MODEL=9", that doesn't work work in vasm 1.8 :/
@@ -156,7 +160,18 @@ RTC_FLAGS   .equ 0xFEC0008D       ; A2560K
 
             .section text,text
 
-coldboot:   move.w #0x2700,SR        ; Supervisor mode, disable all interrupts
+coldboot:
+__low_level_init:
+    ; ssp is already set during reset. Should we set it again ?
+    move.l #0x22222222,d0 ; change border color for debug purpose
+    move.l d0,0xB40008
+            jsr int_disable_all
+            moveq #-1,d0 ; stay in supervisor
+            rts
+
+#if 0
+
+            move.w #0x2700,SR        ; Supervisor mode, disable all interrupts
             move.l #__STACK,sp
             bsr int_disable_all
 
@@ -174,10 +189,10 @@ clrloop:    ; We don't use clr.l because it's a read-modify-write operation
             subq.l #4,d0
             bpl.s  clrloop
 
-            move.l #trap_save_area,trap_save_area
 
-callmain:   jsr main                ; call __main to transfer to the C code
 
+callmain:   jsr main                ; call main to transfer to the C code
+#endif
 ;	endless loop; can be changed accordingly
 ___exit:
             bra	___exit
@@ -477,4 +492,6 @@ restart_cli:
 
 TRAP_MAX_REENTRANCY .equ 4  ; Max number of reentrant calls to the trap handler
     .space (6+12*4)*TRAP_MAX_REENTRANCY ; Each time we save status register .w and return address .l, so 6 bytes, + the saved registers (non-scratch) d2-d7/a2-a7 according to VBCC doc
-trap_save_area: .space 4
+
+            .section far,data
+trap_save_area: .long trap_save_area
