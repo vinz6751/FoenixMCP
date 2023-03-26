@@ -404,6 +404,7 @@ syscall_stack_set:
             cmpi.w  #KFN_ELEVATE,(sp)   ; Is this a sys_proc_elevate call?
             beq.s   h_trap_elev         ; Yes, just handle it here
 
+            movem.l (sp)+,d0-d1
             jsr     syscall_dispatch    ; Call the C routine to do the dispatch
 
             ; Restore context from our save area
