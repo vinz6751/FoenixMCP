@@ -370,15 +370,15 @@ panic_lock:         bra panic_lock
 ;
 syscall:
             ; Repush the parameters
-            move.l  28(sp),-(sp)
-            move.l  28(sp),-(sp)
-            move.l  28(sp),-(sp)
-            move.l  28(sp),-(sp)
-            move.l  28(sp),-(sp)
-            move.l  28(sp),-(sp)
-            move.l  28(sp),-(sp)
+            move.l  20(sp),-(sp)
+            move.l  20(sp),-(sp)
+            move.l  20(sp),-(sp)
+            move.l  20(sp),-(sp)
+            move.l  20(sp),-(sp)
+            move.l  d1,-(sp)
+            move.l  d0,-(sp)
             trap    #15                 ; Call into the kernel
-            lea     28(sp),sp
+            lea     20(sp),sp
             rts
 
 ;
