@@ -98,7 +98,7 @@ else ifeq ($(COMPILER),calypsi)
   AR=nlib
   LD=ln68k
   CLIB = clib-68000-lc-fod.a
-  LDFLAGS=$(CLIB) --sstack-size=2000 --stack-size=1000 --heap-size=1000 -l --cross-reference --rom-code  --debug 
+  LDFLAGS=$(CLIB) --sstack-size=2000 --stack-size=1000 --heap-size=1000 -l --cross-reference --rom-code  --debug --rtattr printf=medium
   CFLAGS = --code-model=large --data-model=far-only  --debug
   ASFLAGS = $(CFLAGS)
 else
