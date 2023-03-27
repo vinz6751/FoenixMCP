@@ -149,13 +149,19 @@ RTC_FLAGS   .equ 0xFEC0008D       ; A2560K
             .long interrupt_x2E      ; 94 - Interrupt 0x2E - Reserved
             .long interrupt_x2F      ; 95 - Interrupt 0x2F - DAC0 Playback Done Interrupt (44.1K)
 
-            .public __low_level_init
-            .section code
-__low_level_init: 
-            move.l #trap_save_area,trap_save_area
-            moveq.l #1,d0            ; stay in supervisor
-            rts
-
+              .public __low_level_init
+              .section code
+__low_level_init:
+#if 1
+              ;; temp while debugging, set up sstack
+              move.l  (sp),a0
+              move.l  #.sectionEnd sstack + 1,sp
+              moveq.l #1,d0         ; stay in supervisor
+              jmp     (a0)
+#else
+              moveq.l #1,d0         ; stay in supervisor
+              rts
+#endif
             #if MODEL==11	// A2560K
 ;
 ; Autovector #1: Used by VICKY III Channel B interrupts
@@ -368,56 +374,26 @@ panic_lock:         bra panic_lock
 ; Function to make a system call based on the number of the system function:
 ; int32_t syscall(int32_t number, int32_t p0, int32_t p1, int32_t p2, int32_t p3, int32_t p4, int32_t p5)
 ;
-syscall:
-            ; Repush the parameters
-            move.l  20(sp),-(sp)
-            move.l  20(sp),-(sp)
-            move.l  20(sp),-(sp)
-            move.l  20(sp),-(sp)
-            move.l  20(sp),-(sp)
-            move.l  d1,-(sp)
-            move.l  d0,-(sp)
-            trap    #15                 ; Call into the kernel
-            lea     20(sp),sp
-            rts
+syscall:      movem.l d2-d7,-(sp)   ; preserve registers
+              movem.l (28,sp),d1-d7 ; load register parameters
+              trap    #15           ; Call into the kernel
+              movem.l (sp)+,d2-d7   ; restore registers
+              rts
 
 ;
 ; TRAP#15 handler... transfer control to the C dispatcher
 ;
-KFN_ELEVATE .equ 0x43
-h_trap_15:
-            ; Save sr, return address and non-scratch registers into our save area
-            ; TODO we should guard this if we want to allow system calls from interrupts.
-            move.l  trap_save_area,a0
-            move.w  (sp)+,d0            ; Status register
-            move.w  d0,-(a0)
-            move.l  (sp)+,-(a0)         ; Return address
-            movem.l d2-d7/a2-a7,-(a0)
-            move.l  a0,trap_save_area   ; TODO should we check if we're beyond the end of that area ? As we'd be corrupting data.
-            
-            ; Fix stack if necessary so it points to the arguments for the dispatcher
-            btst    #13,d0              ; Check supervisor bit from caller's status register to see if were we called from user mode
-            bne.s   syscall_stack_set   ; If yes, sp already points to the arguments
-            move.l  usp,sp              ; If not, the argument are on the user stack, so use it
-syscall_stack_set:
+KFN_ELEVATE   .equ    0x43
+h_trap_15:    cmpi.w  #KFN_ELEVATE,(sp) ; Is this a sys_proc_elevate call?
+              beq.s   h_trap_elev   ; Yes, just handle it here
+              movem.l d2-d7,-(sp)   ; push parameters that are expected on the stack
+              jsr     syscall_dispatch
+              lea.l   (6*4,sp),sp
+              rte
 
-            cmpi.w  #KFN_ELEVATE,(sp)   ; Is this a sys_proc_elevate call?
-            beq.s   h_trap_elev         ; Yes, just handle it here
-
-            movem.l (sp)+,d0-d1
-            jsr     syscall_dispatch    ; Call the C routine to do the dispatch
-
-            ; Restore context from our save area
-            move.l  trap_save_area,a0
-            movem.l (a0)+,d2-d7/a2-a7
-            move.l  (a0)+,-(sp)         ; Return address
-            move.w  (a0)+,-(sp)         ; Status register
-            move.l  a0,trap_save_area
-    
-            rte                         ; Return to the caller
-
-h_trap_elev: or.w #0x2000,(sp)             ; Change the caller's privilege to supervisor
-            rte                         ; And return to it
+h_trap_elev:
+              or.w    #0x2000,(sp)  ; Change the caller's privilege to supervisor
+              rte                   ; And return to it
 
 ;
 ; Jump into a user mode code
@@ -427,29 +403,22 @@ h_trap_elev: or.w #0x2000,(sp)             ; Change the caller's privilege to su
 ; a1 = location to set user stack pointer
 ;
 call_user:
-            ; Set up the user stack
-            move.l #0x00010000,a0        ; Get the pointer to the process's stack
-            move.l (12,a7),d1           ; Get the number of parameters passed
-            move.l (16,a7),a1           ; Get the pointer to the parameters
-            move.l a1,-(a0)             ; Push the parameters list
-            move.w d1,-(a0)             ; Push the parameter count
-            move.l a0,usp               ; Set the User Stack Pointer
+              ;; Set up the user stack
+              move.l  #0x00010000,a0 ; Get the pointer to the process's stack
+              move.l  (12,a7),d1    ; Get the number of parameters passed
+              move.l  (16,a7),a1    ; Get the pointer to the parameters 
+              move.l  a1,-(a0)      ; Push the parameters list
+              move.w  d1,-(a0)      ; Push the parameter count
+              move.l  a0,usp        ; Set the User Stack Pointer
 
-
-            ; Set up the system stack
-            move.l (4,a7),a0            ; Get the pointer to the code to start
-            move.w #0,-(a7)             ; Push the fake vector offset
-            move.l a0,-(a7)             ; Push it as the starting address
-            move.w #0x0000,-(a7)         ; Push the user's initial SR (to switch to user mode)
-            rte                         ; Start the user process
+              ;; Set up the system stack
+              move.l  (4,a7),a0     ; Get the pointer to the code to start
+              move.w  #0,-(a7)      ; Push the fake vector offset
+              move.l  a0,-(a7)      ; Push it as the starting address
+              clr.w   -(a7)         ; Push the user's initial SR (to switch to user mode)
+              rte                   ; Start the user process
 
 restart_cli:
-            move.l #.sectionEnd sstack + 1,sp
-            jsr cli_rerepl
-            bra restart_cli
-
-            .section BSS,BSS
-
-TRAP_MAX_REENTRANCY .equ 4  ; Max number of reentrant calls to the trap handler
-    .space (6+12*4)*TRAP_MAX_REENTRANCY ; Each time we save status register .w and return address .l, so 6 bytes, + the saved registers (non-scratch) d2-d7/a2-a7 according to VBCC doc
-trap_save_area: .space 4
+              move.l  #.sectionEnd sstack + 1,sp
+              jsr     cli_rerepl
+              bra     restart_cli
