@@ -1,4 +1,3 @@
-
 #
 # User may over-ride the UNIT and MEMORY parameters to specify target machine
 # and where the MCP will run (ram or flash)
@@ -99,7 +98,7 @@ else ifeq ($(COMPILER),calypsi)
   LD=ln68k
   CLIB = clib-68000-lc-fod.a
   LDFLAGS=$(CLIB) --sstack-size=2000 --stack-size=1000 --heap-size=1000 -l --cross-reference --rom-code  --debug --rtattr printf=medium
-  CFLAGS = --code-model=large --data-model=far-only  --debug
+  CFLAGS = --code-model=large --data-model=far-only  --debug -D_CALYPSI_MCP_BUILD
   ASFLAGS = $(CFLAGS)
 else
   $(error Compiler not recognized)
@@ -129,6 +128,12 @@ cpu_assembly_src := $(wildcard $(cpu)/*.s)
 cpu_c_src := $(wildcard $(cpu)/*.c)
 cpu_assembly_obj := $(subst .s,.o,$(cpu_assembly_src))
 cpu_c_obj := $(subst .c,.o,$(cpu_c_src))
+
+debugger_src_path := ../module/Calypsi-remote-debug/src
+debugger_c_src := $(debugger_src_path)/agent.c $(debugger_src_path)/a2560-uart.c
+debugger_assembly_src := $(debugger_src_path)/low_level_68000.s
+debugger_obj := $(patsubst $(debugger_src_path)/%.c,%.o,$(debugger_c_src)) \
+                $(patsubst $(debugger_src_path)/%.s,%.o,$(debugger_assembly_src))
 
 dev_base_sources = dev/block.c dev/channel.c dev/console.c dev/fsys.c dev/pata.c dev/ps2.c dev/rtc.c dev/sdc.c dev/txt_screen.c dev/uart.c
 ifeq ($(UNIT),a2560k)
@@ -170,12 +175,11 @@ snd:
 cli:
 	$(MAKE) --directory=cli
 
-
 foenixmcp.s68: $(c_obj) $(cpu) dev fatfs snd cli
 # VBCC
 #	$(CC) $(CFLAGS) $(DEFINES) -o foenixmcp.s68 $(c_obj) $(cpu_c_obj) $(dev_c_obj) $(fat_c_obj) $(snd_c_obj) $(cli_c_obj)
 #Calypsi
-	$(LD) -o foenixmcp.elf $(c_obj) $(cpu_c_obj) $(cpu_assembly_obj) $(dev_c_obj) $(fat_c_obj) $(snd_c_obj) $(cli_c_obj) $(LDFLAGS) --output-format=s28 --semi-hosted mcp.scm
+	$(LD) -o foenixmcp.elf $(c_obj) $(cpu_c_obj) $(debugger_obj) $(cpu_assembly_obj) $(dev_c_obj) $(fat_c_obj) $(snd_c_obj) $(cli_c_obj) $(LDFLAGS) --output-format=s28 --semi-hosted mcp.scm
 
 foenixmcp.bin: $(c_obj) $(cpu) dev fatfs snd cli
 	$(CC) $(CFLAGS) $(DEFINES) -o foenixmcp.bin $(c_obj) $(cpu_c_obj) $(dev_c_obj) $(fat_c_obj) $(snd_c_obj) $(cli_c_obj)

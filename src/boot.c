@@ -372,8 +372,8 @@ void boot_from_bdev(short device) {
     switch (device) {
         case BOOT_DEFAULT:
             // User chose the default. Look at the DIP switches to determine the boot source
-            boot_dip = *GABE_DIP_REG & GABE_DIP_BOOT_MASK;
-            switch (boot_dip) {
+            boot_dip = *GABE_DIP_REG;
+            switch (boot_dip & GABE_DIP_BOOT_MASK) {
                 case 0x0000:
                     // Boot from IDE
                     device = BDEV_HDC;
@@ -398,11 +398,20 @@ void boot_from_bdev(short device) {
 #endif
 
                 default:
-                    // Boot straight to REPL
-                    log(LOG_INFO, "Boot DIP set for REPL");
-                    strcpy(initial_path, "/sd");
-                    device = -1;
-                    break;
+                  switch (boot_dip & GABE_DIP_USER_MASK) {
+#ifdef _CALYPSI_MCP_BUILD
+                    extern int CalypsiDebugger(void);
+                    case 1 << GABE_DIP_USER_SHIFT:
+                      CalypsiDebugger();  // This will not return
+#endif
+
+                    default:
+                      // Boot straight to REPL
+                      log(LOG_INFO, "Boot DIP set for REPL");
+                      strcpy(initial_path, "/sd");
+                      device = -1;
+                      break;
+                  }
             }
             break;
 
