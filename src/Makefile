@@ -98,7 +98,7 @@ else ifeq ($(COMPILER),calypsi)
   LD=ln68k
   CLIB = clib-68000-lc-fod.a
   LDFLAGS=$(CLIB) --sstack-size=2000 --stack-size=1000 --heap-size=1000 -l --cross-reference --rom-code  --debug --rtattr printf=medium
-  CFLAGS = --code-model=large --data-model=far-only  --debug -D_CALYPSI_MCP_BUILD
+  CFLAGS = --code-model=large --data-model=far-only  --debug -D_CALYPSI_MCP_DEBUGGER
   ASFLAGS = $(CFLAGS)
 else
   $(error Compiler not recognized)

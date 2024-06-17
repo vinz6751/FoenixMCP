@@ -399,7 +399,7 @@ void boot_from_bdev(short device) {
 
                 default:
                   switch (boot_dip & GABE_DIP_USER_MASK) {
-#ifdef _CALYPSI_MCP_BUILD
+#ifdef _CALYPSI_MCP_DEBUGGER
                     extern int CalypsiDebugger(void);
                     case 1 << GABE_DIP_USER_SHIFT:
                       CalypsiDebugger();  // This will not return
